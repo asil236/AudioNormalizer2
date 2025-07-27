@@ -1,0 +1,5 @@
+PyQt5==5.15.9
+pydub==0.25.1
+pyloudnorm==0.1.1
+numpy==1.24.3
+pygame==2.5.2

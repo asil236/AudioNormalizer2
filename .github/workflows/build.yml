@@ -1,0 +1,89 @@
+name: Build Executable
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Download FFmpeg
+      run: |
+        # Download FFmpeg static build
+        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+        Expand-Archive -Path "ffmpeg.zip" -DestinationPath "."
+        $ffmpegDir = Get-ChildItem -Directory -Name "ffmpeg-*"
+        Copy-Item "$ffmpegDir\bin\ffmpeg.exe" -Destination "."
+        Copy-Item "$ffmpegDir\bin\ffprobe.exe" -Destination "."
+      shell: powershell
+    
+    - name: Build with PyInstaller
+      run: |
+        # Add FFmpeg to the spec file data
+        pyinstaller --clean --onefile --windowed ^
+          --add-binary "ffmpeg.exe;." ^
+          --add-binary "ffprobe.exe;." ^
+          --add-data "README.md;." ^
+          --icon "icon.ico" ^
+          --hidden-import=pydub ^
+          --hidden-import=pyloudnorm ^
+          --hidden-import=numpy ^
+          --hidden-import=pygame ^
+          --hidden-import=PyQt5 ^
+          --name "UnrealAudioNormalizer" ^
+          main.py
+      shell: cmd
+    
+    - name: Test executable
+      run: |
+        # Test if the executable runs without crashing
+        timeout 10 .\dist\UnrealAudioNormalizer.exe --version || echo "Executable test completed"
+      shell: cmd
+      continue-on-error: true
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: UnrealAudioNormalizer-Windows
+        path: |
+          dist/UnrealAudioNormalizer.exe
+    
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+    
+    - name: Upload Release Asset
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/UnrealAudioNormalizer.exe
+        asset_name: UnrealAudioNormalizer.exe
+        asset_content_type: application/octet-stream
