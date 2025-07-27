@@ -15,9 +15,9 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
     
     - name: Install dependencies
       run: |
@@ -28,16 +28,37 @@ jobs:
     - name: Download FFmpeg
       run: |
         # Download FFmpeg static build
-        Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile "ffmpeg.zip"
+        Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile "ffmpeg.zip"
         Expand-Archive -Path "ffmpeg.zip" -DestinationPath "."
-        $ffmpegDir = Get-ChildItem -Directory -Name "ffmpeg-*"
-        Copy-Item "$ffmpegDir\bin\ffmpeg.exe" -Destination "."
-        Copy-Item "$ffmpegDir\bin\ffprobe.exe" -Destination "."
+        $ffmpegDir = Get-ChildItem -Directory -Name "ffmpeg-master-*" | Select-Object -First 1
+        if ($ffmpegDir) {
+          Copy-Item "$ffmpegDir\bin\ffmpeg.exe" -Destination "."
+          Copy-Item "$ffmpegDir\bin\ffprobe.exe" -Destination "."
+          Write-Host "FFmpeg copied successfully"
+        }
+        Remove-Item "ffmpeg.zip" -ErrorAction SilentlyContinue
+        if ($ffmpegDir) { Remove-Item $ffmpegDir -Recurse -Force -ErrorAction SilentlyContinue }
+      shell: powershell
+    
+    - name: Verify FFmpeg
+      run: |
+        if (Test-Path "ffmpeg.exe") {
+          Write-Host "✅ ffmpeg.exe found"
+        } else {
+          Write-Host "❌ ffmpeg.exe not found"
+          exit 1
+        }
+        if (Test-Path "ffprobe.exe") {
+          Write-Host "✅ ffprobe.exe found"  
+        } else {
+          Write-Host "❌ ffprobe.exe not found"
+          exit 1
+        }
       shell: powershell
     
     - name: Build with PyInstaller
       run: |
-        # Add FFmpeg to the spec file data
+        # Build executable with FFmpeg support
         pyinstaller --clean --onefile --windowed ^
           --add-binary "ffmpeg.exe;." ^
           --add-binary "ffprobe.exe;." ^
@@ -52,30 +73,52 @@ jobs:
           main.py
       shell: cmd
     
-    - name: Test executable
+    - name: Verify build
       run: |
-        # Test if the executable runs without crashing
-        timeout 10 .\dist\UnrealAudioNormalizer.exe --version || echo "Executable test completed"
-      shell: cmd
-      continue-on-error: true
+        if (Test-Path "dist\UnrealAudioNormalizer.exe") {
+          Write-Host "✅ Build successful!"
+          $size = (Get-Item "dist\UnrealAudioNormalizer.exe").Length / 1MB
+          Write-Host "📦 Executable size: $([math]::Round($size, 2)) MB"
+        } else {
+          Write-Host "❌ Build failed - executable not found"
+          exit 1
+        }
+      shell: powershell
     
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: UnrealAudioNormalizer-Windows
-        path: |
-          dist/UnrealAudioNormalizer.exe
+        path: dist/UnrealAudioNormalizer.exe
+        retention-days: 90
     
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
+      id: create_release
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
         draft: false
         prerelease: false
+        body: |
+          🎉 **Unreal Audio Normalizer** ${{ github.ref_name }}
+          
+          ## ✨ Features
+          - Professional LUFS audio normalization
+          - Batch processing support
+          - MP3, WAV, FLAC, OGG support
+          - Built-in audio preview
+          - Custom LUFS presets
+          
+          ## 📥 Download
+          Download `UnrealAudioNormalizer.exe` below and run directly - no installation required!
+          
+          ## 🔧 Requirements
+          - Windows 10/11 (64-bit)
+          - No additional software needed
     
     - name: Upload Release Asset
       if: startsWith(github.ref, 'refs/tags/')
